@@ -1,0 +1,79 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly GA4 referral sessions per page with 12-month rolling total, months live, monthly average, and traffic score. Uses enhanced scaffold for all page status logic.',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_ga4_referral_sessions"
+        }
+    }
+}
+
+-- Get base referral sessions at weekly cadence
+with base_sessions as (
+    select
+        date_trunc(event_date_dt, week(MONDAY)) as event_date_dt
+        , landing_page_clean as page_location_clean
+        , count(distinct(session_partition_key)) as sessions
+    from 
+        ${ref('final_ga4_sessions')}
+    where
+        regexp_contains(landing_page_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+        and session_attribution.last_non_direct_default_channel_grouping = 'Referral'
+        and event_date_dt >= "${project_config.START_DATE}"
+    group by 
+        event_date_dt
+        , page_location_clean
+)
+
+-- Join with weekly scaffold - 
+, sessions_live_pages as (
+    select
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(bs.sessions, 0) as sessions
+        , sc.first_seen_date
+        , sc.months_live
+    from 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base_sessions bs
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true  -- Only include pages where the page is live in a given week
+)
+
+-- Calculate 12-month rolling sum
+, rolling_12_month as (
+    select
+        event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , sum(sessions) over (
+            partition by page_location_clean 
+            order by event_date_dt 
+            rows between 51 preceding and current row
+        ) as total_12_months
+    from 
+        sessions_live_pages
+)
+
+-- Calculate monthly average and traffic score
+select
+    event_date_dt
+    , page_location_clean
+    , total_12_months
+    , months_live
+    , first_seen_date
+    , cast(round(safe_divide(total_12_months, months_live)) as int64) as monthly_avg
+    , case
+        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 100 then 5
+        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 30 then 4
+        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 10 then 3
+        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 3 then 2
+        when cast(round(safe_divide(total_12_months, months_live)) as int64) < 3 then 1
+        else null
+    end as score_ga4_referral_traffic
+from 
+    rolling_12_month

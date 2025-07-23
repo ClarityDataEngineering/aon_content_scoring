@@ -1,0 +1,116 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly GA4 engagement time per page with 12-month rolling total, months live, monthly average, and traffic score. Uses enhanced scaffold for all page status logic.',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_ga4_engagement_time"
+        }
+    }
+}
+
+-- Get base engagement time at weekly cadence
+with base_unique_pv as (
+    select
+        date_trunc(event_date_dt, week(MONDAY)) as event_date_dt
+        , page_location_clean
+        , count(distinct(client_key)) as users
+        , sum(engagement_time_msec)/1000 as total_engagement_time_secs
+    from 
+        ${ref('final_ga4_pages')}
+    where
+        regexp_contains(page_location_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+        and event_date_dt >= "${project_config.START_DATE}"
+    group by 
+        event_date_dt
+        , page_location_clean
+)
+
+-- Join with weekly scaffold - 
+, engagement_time_live_pages as (
+    select
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(bs.users, 0) as users
+        , coalesce(bs.total_engagement_time_secs, 0) as total_engagement_time_secs
+        , sc.first_seen_date
+        , sc.months_live
+    from 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base_unique_pv bs
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true  -- Only include pages where the page is live in a given week
+)
+
+-- Calculate 12-month rolling sum
+, rolling_12_month as (
+    select
+        event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , sum(users) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_users_12_months
+        , sum(total_engagement_time_secs) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_engagement_time_secs_12_months
+    from 
+        engagement_time_live_pages
+)
+-- Join the months live and calculate the monthly avg. Add filter to include rows only post first seen date
+, calc_monthly_avg as (
+    select
+        event_date_dt
+        , page_location_clean
+        , total_users_12_months
+        , total_engagement_time_secs_12_months
+        , months_live
+        , first_seen_date
+        , round(safe_divide(total_engagement_time_secs_12_months, total_users_12_months)) as rolling_12_month_page_engagement_time_secs
+    from 
+        rolling_12_month
+    where
+        event_date_dt >= first_seen_date
+)
+
+-- Calculate the percentiles at a weekly cadence based on 12 month rolling avg  
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , total_users_12_months
+        , total_engagement_time_secs_12_months
+        , months_live
+        , first_seen_date
+        , rolling_12_month_page_engagement_time_secs
+        , cast(round(percentile_cont(total_users_12_months, 0.20) over(partition by event_date_dt)) as int64) as users_qualified
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.80) over(partition by event_date_dt)) as int64) as percentile_80
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.70) over(partition by event_date_dt)) as int64) as percentile_70
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.60) over(partition by event_date_dt)) as int64) as percentile_60
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.40) over(partition by event_date_dt)) as int64) as percentile_40
+    from 
+        calc_monthly_avg
+)
+
+-- Add case for clicks percentile scoring logic
+select
+    event_date_dt
+    , page_location_clean
+    , total_users_12_months
+    , total_engagement_time_secs_12_months
+    , months_live
+    , first_seen_date
+    , rolling_12_month_page_engagement_time_secs
+    , users_qualified
+    , percentile_80
+    , percentile_70
+    , percentile_60
+    , percentile_40
+    , case 
+        when rolling_12_month_page_engagement_time_secs >= percentile_80 and total_users_12_months >= users_qualified then 5
+        when rolling_12_month_page_engagement_time_secs >= percentile_70 and rolling_12_month_page_engagement_time_secs < percentile_80 and total_users_12_months >= users_qualified then 4
+        when rolling_12_month_page_engagement_time_secs >= percentile_60 and rolling_12_month_page_engagement_time_secs < percentile_70 and total_users_12_months >= users_qualified then 3
+        when rolling_12_month_page_engagement_time_secs >= percentile_40 and rolling_12_month_page_engagement_time_secs < percentile_60 and total_users_12_months >= users_qualified then 2
+        else 1
+    end as score_ga4_engagement_time
+from 
+    weekly_percentiles

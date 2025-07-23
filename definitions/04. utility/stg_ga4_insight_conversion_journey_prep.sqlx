@@ -1,0 +1,77 @@
+config {
+    type: 'incremental',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'XX',
+    bigquery: {
+        partitionBy: "event_date_dt",
+        labels: {
+            table_name: "content_scoring_stg_insight_conversion_journey_prep"
+        }
+    }
+}
+
+pre_operations {
+  declare event_date_checkpoint default (
+    ${when(incremental(),
+      `select max(event_date_dt) -3 from ${self()}`,
+      `select cast('${project_config.START_DATE}' as date)`)
+    }
+  );
+
+  ${when(incremental(),
+    `delete from ${self()} where event_date_dt >= event_date_checkpoint`)
+  }
+}
+
+-- Get the sessions with form submits (the earliest timestamp in a session)
+with sessions_with_form_submit as (
+    select
+        event_date_dt
+        , min(coalesce(custom_timestamp, event_timestamp)) as conversion_timestamp
+        , session_partition_key
+    from 
+        ${ref('final_ga4_events')}
+    where 
+        event_date_dt >= event_date_checkpoint
+    and
+        event_name like 'form_submit'
+    group by 
+        event_date_dt
+        , session_partition_key
+)
+-- Get all pageviews that are insight pages
+, page_views as (
+    select
+        event_date_dt
+        , coalesce(custom_timestamp, event_timestamp) as page_view_timestamp
+        , session_partition_key
+        , page_location_clean
+    from 
+        ${ref('final_ga4_events')}
+    where 
+        event_date_dt >= event_date_checkpoint
+    and
+        event_name like 'page_view'
+        and regexp_contains(page_location_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+)
+-- Get the pageviews on sessions where a conversion event happened and the timestamp was before a conversion event
+, get_pageviews_before_conversion as (
+    select
+        pv.event_date_dt
+        , pv.session_partition_key
+        , pv.page_location_clean
+    from 
+        page_views pv 
+    left join sessions_with_form_submit fs
+        on pv.event_date_dt = fs.event_date_dt and pv.session_partition_key = fs.session_partition_key
+    where
+        fs.session_partition_key = pv.session_partition_key
+        and pv.page_view_timestamp < fs.conversion_timestamp
+    group by 
+        event_date_dt
+        , session_partition_key
+        , page_location_clean
+        
+)
+
+select * from get_pageviews_before_conversion

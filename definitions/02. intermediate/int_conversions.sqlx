@@ -1,0 +1,23 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Perform joins of conversion page metrics',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_int_conversion"
+        }
+    }
+}
+-- Join all the conversion metrics together 
+select
+    wps.event_date_dt
+    , wps.page_location_clean
+    , frs.score_ga4_form_submits
+from 
+    ${ref('stg_ga4_page_live_weekly_scaffold')} wps
+left join ${ref('stg_metric_ga4_form_submits')} frs
+    using(event_date_dt, page_location_clean)
+where
+    wps.is_page_live_week = true
+
+    

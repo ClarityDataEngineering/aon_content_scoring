@@ -1,0 +1,38 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly page scaffold enriched with all page meta attributes',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_int_page_meta"
+        }
+    }
+}
+-- Add page attributes from various sources 
+select
+  ws.event_date_dt
+  , ws.page_location_clean
+  , ws.first_seen_date
+  , ws.months_live
+  , ms.media_spend_in_usd
+  , pa.page_type_group
+  , pa.page_business_line
+  , pa.page_industry
+  , pa.page_region
+  , pa.page_country
+  , pa.page_language
+  , pf.organic_post_frequency
+  , ts.trajectory_score
+from 
+  ${ref('stg_ga4_page_live_weekly_scaffold')} ws
+left join ${ref('stg_meta_pages_media_spend')} ms
+  using(event_date_dt, page_location_clean)
+left join ${ref('stg_ga4_pages_aon_attributes')} pa
+  using(page_location_clean)
+left join ${ref('stg_meta_pages_org_post_frequency')} pf
+  using(event_date_dt, page_location_clean)
+left join ${ref('stg_meta_pages_trajectory_score')} ts
+  using(event_date_dt, page_location_clean)
+where
+  is_page_live_week = true 
+  and ws.event_date_dt >= ws.first_seen_date

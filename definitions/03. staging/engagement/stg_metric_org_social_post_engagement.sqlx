@@ -1,0 +1,113 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Provides weekly organic social post engagements scores for each page, based on a rolling 12-month average of engagements. Each page’s engagements is benchmarked against percentile thresholds, assigning a score from 1 (lowest) to 5 (highest).',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_org_social_post_engagagement"
+        }
+    }
+}
+
+-- Note: The organic_social table already contains one row per date for each post, regardless of whether data exists. 
+
+-- Get base engagements and calculate at weekly cadence 
+ with base_engagements as (
+    select
+        date_trunc(date, week(MONDAY)) as event_date_dt
+        , post_link.post_link_url as page_location_clean
+        , sum(coalesce(clicks,0) + coalesce(comments, 0) + coalesce(likes, 0) + coalesce(shares, 0)) as engagements
+    from 
+        ${ref('social_posts')}
+    where
+        regexp_contains(post_link.post_link_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
+        and date >= "${project_config.START_DATE}"
+    group by 
+        event_date_dt
+        , post_link.post_link_url
+)
+
+
+-- Join status with impressions and filter by HTTP status 
+, post_engagements_with_status as (
+    select
+        be.event_date_dt
+        , be.page_location_clean
+        , be.engagements
+        , sc.first_seen_date
+        , sc.months_live
+        , sc.last_200_date
+    from 
+        base_engagements be
+    left join 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true 
+) 
+
+-- Use window function to calculate a 12 month rolling looking back over last 52 rows
+, rolling_12_month as (
+    select
+        event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , sum(engagements) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_12_months
+    from 
+        post_engagements_with_status
+)
+
+-- Join the months live and calculate the monthly avg. Add filter to include rows only post first seen date
+, calc_monthly_avg as (
+    select
+        event_date_dt
+        , page_location_clean
+        , total_12_months
+        , months_live
+        , first_seen_date
+        , cast(round(safe_divide(total_12_months, months_live)) as int64) as monthly_avg
+    from 
+        rolling_12_month
+    where
+        event_date_dt >= first_seen_date
+)
+
+-- Calculate the percentiles at a weekly cadence based on 12 month rolling avg  
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , total_12_months
+        , months_live
+        , first_seen_date
+        , monthly_avg
+        , cast(round(percentile_cont(monthly_avg, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
+        , cast(round(percentile_cont(monthly_avg, 0.80) over(partition by event_date_dt)) as int64) as percentile_80
+        , cast(round(percentile_cont(monthly_avg, 0.60) over(partition by event_date_dt)) as int64) as percentile_60
+        , cast(round(percentile_cont(monthly_avg, 0.40) over(partition by event_date_dt)) as int64) as percentile_40
+    from 
+        calc_monthly_avg
+)
+
+-- Add case for engagements percentile scoring logic
+select
+    event_date_dt
+    , page_location_clean
+    , total_12_months
+    , months_live
+    , first_seen_date
+    , monthly_avg
+    , percentile_90
+    , percentile_80
+    , percentile_60
+    , percentile_40
+    , case 
+        when monthly_avg >= percentile_90 then 5
+        when monthly_avg >= percentile_80 and monthly_avg < percentile_90 then 4
+        when monthly_avg >= percentile_60 and monthly_avg < percentile_80 then 3
+        when monthly_avg >= percentile_40 and monthly_avg < percentile_60 then 2
+        when monthly_avg < percentile_40 then 1
+    end as score_org_social_engagements_score
+from 
+    weekly_percentiles

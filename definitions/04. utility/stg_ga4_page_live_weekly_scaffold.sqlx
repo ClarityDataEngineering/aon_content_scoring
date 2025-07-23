@@ -1,0 +1,33 @@
+config {
+    type: 'table',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly aggregation of page live status from daily scaffold - provides clean weekly view for adding metrics upstream',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_pages_weekly_scaffold"
+        }
+    }
+}
+
+-- Aggregate daily scaffold to weekly periods
+select
+    week_start_date as event_date_dt
+    , page_location_clean
+    , min(first_seen_date) as first_seen_date
+    , max(months_live) as months_live  -- Take the max months_live for the week
+    , min(weeks_live) as weeks_live
+    , min(last_200_date) as last_200_date
+    , min(first_non_200_date) as first_non_200_date
+    -- Page is considered live for the week if it was live on ANY day that week
+    , max(case when is_page_live then 1 else 0 end) = 1 as is_page_live_week
+    -- Additional weekly flags
+    , max(case when is_200_today then 1 else 0 end) = 1 as had_200_this_week
+    , max(case when is_error_today then 1 else 0 end) = 1 as had_error_this_week
+    , max(case when ever_had_200_status then 1 else 0 end) = 1 as ever_had_200_status
+    , max(case when is_post_failure then 1 else 0 end) = 1 as is_post_failure_week
+    , max(case when is_first_seen_date then 1 else 0 end) = 1 as is_first_seen_week
+from 
+    ${ref('stg_ga4_page_live_daily_scaffold')}
+group by 
+    week_start_date
+    , page_location_clean

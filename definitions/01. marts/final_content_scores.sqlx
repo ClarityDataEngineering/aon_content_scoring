@@ -1,0 +1,145 @@
+config {
+    type: 'table',
+    schema: project_config.OUTPUT_MART_DATASET, 
+    description: 'Aggregated content performance scores by page and date, structured by visibility, engagement, and conversion metrics along with key metadata.',
+    bigquery: {
+        partitionBy: "event_date_dt",
+        labels: {
+          table_name: "content_scoring_final_content_scores"
+        }
+    }
+}
+
+-- Join page metadata with all metric sources and calculate performance scores
+with join_page_and_metrics as (
+  select
+    -- Core page identifiers and metadata
+     pm.event_date_dt
+    , pm.page_location_clean
+    , pm.first_seen_date
+    , pm.months_live
+    , pm.media_spend_in_usd
+    , pm.page_type_group
+    , pm.page_business_line
+    , pm.page_industry
+    , pm.page_region
+    , pm.page_country
+    , pm.page_language
+    , pm.organic_post_frequency
+    , pm.trajectory_score
+    
+    -- Visibility metrics
+    , vs.score_ga4_referral_traffic
+    , vs.score_gsc_clicks
+    , vs.score_gsc_impressions
+    , vs.score_gsc_ctr
+    , vs.score_gsc_branded_queries
+    , vs.score_org_social_reach
+    
+    -- Engagement metrics
+    , eg.score_ga4_engagement_time
+    , eg.score_ga4_new_vs_returning_users
+    , eg.score_ga4_unique_pageviews
+    , eg.score_org_social_engagements_score
+    
+    -- Conversion metrics
+    , cv.score_ga4_form_submits
+    
+    -- Calculate composite scores with null handling
+    , round((
+        coalesce(vs.score_ga4_referral_traffic, 0) +
+        coalesce(vs.score_gsc_clicks, 0) +
+        coalesce(vs.score_gsc_impressions, 0) +
+        coalesce(vs.score_gsc_ctr, 0) +
+        coalesce(vs.score_gsc_branded_queries, 0) +
+        coalesce(vs.score_org_social_reach, 0)
+      ) / 6.0, 2) as overall_score_visibility
+    
+    , round((
+        coalesce(eg.score_ga4_engagement_time, 0) +
+        coalesce(eg.score_ga4_new_vs_returning_users, 0) +
+        coalesce(eg.score_ga4_unique_pageviews, 0) +
+        coalesce(eg.score_org_social_engagements_score, 0)
+      ) / 4.0, 2) as overall_score_engagement
+    
+    , round(coalesce(cv.score_ga4_form_submits, 0), 2) as overall_score_conversion
+    
+    -- Overall performance score across all dimensions
+    , round((
+        coalesce(vs.score_ga4_referral_traffic, 0) +
+        coalesce(vs.score_gsc_clicks, 0) +
+        coalesce(vs.score_gsc_impressions, 0) +
+        coalesce(vs.score_gsc_ctr, 0) +
+        coalesce(vs.score_gsc_branded_queries, 0) +
+        coalesce(vs.score_org_social_reach, 0) +
+        coalesce(eg.score_ga4_engagement_time, 0) +
+        coalesce(eg.score_ga4_new_vs_returning_users, 0) +
+        coalesce(eg.score_ga4_unique_pageviews, 0) +
+        coalesce(eg.score_org_social_engagements_score, 0) +
+        coalesce(cv.score_ga4_form_submits, 0)
+      ) / 11.0, 2) as overall_score
+    
+  from ${ref('int_page_meta')} pm
+  left join ${ref('int_visibility')} vs
+    using (event_date_dt, page_location_clean)
+  left join ${ref('int_engagement')} eg
+    using (event_date_dt, page_location_clean)
+  left join ${ref('int_conversions')} cv
+    using (event_date_dt, page_location_clean)
+),
+
+-- Structure the data with organized score groupings
+final_scores as (
+  select
+    -- Core dimensions
+     event_date_dt
+    , page_location_clean
+    , first_seen_date
+    , months_live
+    , media_spend_in_usd
+    , organic_post_frequency
+    , trajectory_score
+    
+    -- Page classification attributes
+    , struct(
+        page_type_group
+      , page_business_line
+      , page_industry
+      , page_region
+      , page_country
+      , page_language
+    ) as page_attributes
+    
+    -- Visibility performance metrics
+    , struct(
+        score_ga4_referral_traffic
+      , score_gsc_clicks
+      , score_gsc_impressions
+      , score_gsc_ctr
+      , score_gsc_branded_queries
+      , score_org_social_reach
+      , overall_score_visibility
+    ) as visibility_scores
+    
+    -- Engagement performance metrics
+    , struct(
+        score_ga4_engagement_time
+      , score_ga4_new_vs_returning_users
+      , score_ga4_unique_pageviews
+      , score_org_social_engagements_score
+      , overall_score_engagement
+    ) as engagement_scores
+    
+    -- Conversion performance metrics
+    , struct(
+        score_ga4_form_submits
+      , overall_score_conversion
+    ) as conversion_scores
+    
+    -- Overall performance indicator
+    , overall_score
+    
+  from join_page_and_metrics
+)
+
+select * from final_scores

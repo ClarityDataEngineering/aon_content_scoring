@@ -1,0 +1,22 @@
+config {
+    type: 'table',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly view of media spend from all ad platforms by page',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_pages_media_spend"
+        }
+    }
+}
+-- NOTE: A lot of URLs use bit.ly link which needs to be resolved to final URL (Cloud Function Required)
+select
+    date_trunc(date, week(MONDAY)) as event_date_dt
+    , ${helpers.sanitiseURL('creative_destination_url')} as page_location_clean
+    , sum(cost_in_usd) as media_spend_in_usd
+from 
+    ${ref('ad_report')}
+where
+    regexp_contains(creative_destination_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
+group by
+    event_date_dt
+    , page_location_clean

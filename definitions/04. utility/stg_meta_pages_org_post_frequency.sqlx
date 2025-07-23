@@ -1,0 +1,46 @@
+config {
+    type: 'table',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly view of the organic post frequency per month',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_pages_org_post_freq"
+        }
+    }
+}
+
+-- Ouput the dates where posts were created to the nearest week
+with weeks as (
+  select distinct 
+    date_trunc(created_date, week(monday)) as event_date_dt
+  from 
+    ${ref('social_posts')}
+  where 
+    created_date >= '${project_config.START_DATE}'
+    and regexp_contains(post_link.post_link_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
+)
+-- Get all the posts by ID by week 
+, posts_by_week as (
+  select
+    date_trunc(created_date, week(monday)) as event_date_dt
+    , post_link.post_link_url as page_location_clean
+    , content_id
+    , created_date
+  from 
+    ${ref('social_posts')}
+  where
+    created_date >= '${project_config.START_DATE}'
+    and regexp_contains(post_link.post_link_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
+)
+-- Count distinct the number of weekly posts by page over a rolling 4 week period 
+select
+  w.event_date_dt
+  , p.page_location_clean
+  , count(distinct(p.content_id)) as organic_post_frequency
+from 
+  weeks w
+join posts_by_week p 
+  on p.created_date between date_sub(w.event_date_dt, interval 3 week) and w.event_date_dt
+group by 
+  event_date_dt
+  , page_location_clean

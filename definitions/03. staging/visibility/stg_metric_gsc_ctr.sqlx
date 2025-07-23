@@ -1,0 +1,112 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Weekly GSC CTR per content page with 12-month rolling totals for clicks and impressions, and weekly percentile-based scoring. For each week and page, assigns a score from 3 to 5 based on the distribution of CTR, clicks, and impressions among all pages that week.',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_gsc_ctr"
+        }
+    }
+}
+
+
+-- Get base clicks and impressions and calculate at weekly cadence
+with base as (
+    select
+        date_trunc(date, week(MONDAY)) as event_date_dt
+        , page_location_clean
+        , sum(clicks) as clicks
+        , sum(impressions) as impressions
+    from 
+        ${ref('fct_gsc_url_report')}
+    where
+        regexp_contains(page_location_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+        and date >= "${project_config.START_DATE}"
+    group by 
+        event_date_dt
+        , page_location_clean
+)
+
+-- Join with weekly scaffold 
+, base_live_pages as (
+    select
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(bs.clicks, 0) as clicks
+        , coalesce(bs.impressions, 0) as impressions
+        , sc.first_seen_date
+        , sc.months_live
+    from 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base bs
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true  -- Only include pages where the page is live in a given week
+)
+
+-- Use window function to calculate a 12 month rolling looking back over last 52 rows
+, rolling_12_month as (
+    select
+         event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , sum(impressions) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_impressions_12_months
+        , sum(clicks) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_clicks_12_months
+    from 
+        base_live_pages
+)
+
+-- Join the months live and calculate the monthly avg. Add filter to include rows only post first seen date
+, calc_monthly_avg as (
+    select
+        event_date_dt
+        , page_location_clean
+        , months_live
+        , first_seen_date
+        , total_impressions_12_months
+        , total_clicks_12_months
+        , round(safe_divide(total_clicks_12_months, total_impressions_12_months) * 100, 1) as rolling_12_month_ctr
+    from 
+        rolling_12_month 
+)
+
+-- Calculate the percentiles at a weekly cadence based on 12 month rolling avg  
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , months_live
+        , first_seen_date
+        , total_impressions_12_months
+        , total_clicks_12_months
+        , rolling_12_month_ctr
+        , round(percentile_cont(rolling_12_month_ctr, 0.95) over(partition by event_date_dt), 2) as percentile_95
+        , round(percentile_cont(rolling_12_month_ctr, 0.90) over(partition by event_date_dt), 2) as percentile_90
+        , round(percentile_cont(rolling_12_month_ctr, 0.80) over(partition by event_date_dt), 2) as percentile_80
+    from 
+        calc_monthly_avg
+)
+
+-- Add case for engagements percentile scoring logic
+select
+    event_date_dt
+    , page_location_clean
+    , months_live
+    , first_seen_date
+    , total_impressions_12_months
+    , total_clicks_12_months
+    , rolling_12_month_ctr
+    , percentile_95
+    , percentile_90
+    , percentile_80
+    , case 
+        when rolling_12_month_ctr = 0 then 1
+        when rolling_12_month_ctr >= percentile_95 then 5
+        when rolling_12_month_ctr >= percentile_90 and rolling_12_month_ctr < percentile_95 then 4
+        when rolling_12_month_ctr >= percentile_80 and rolling_12_month_ctr < percentile_90 then 3
+        else 2
+    end as score_gsc_ctr
+from 
+    weekly_percentiles
