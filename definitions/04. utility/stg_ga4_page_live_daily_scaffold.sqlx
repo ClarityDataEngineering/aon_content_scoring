@@ -12,7 +12,7 @@ config {
 -- Get all insight pages and the first date that it was seen
 with first_insight_page_date as (
     select
-        page_location_clean
+        ${helpers.sanitiseURL('page_location_clean')} as page_location_clean
         , min(event_date_dt) as first_seen_date
     from 
         ${ref('final_ga4_pages')}
@@ -37,16 +37,28 @@ with first_insight_page_date as (
         ${ref('thought_leadership_http_status_log')}
 )
 
+-- Get pages that have ever been HTTP status checked
+, pages_with_status_checks as (
+    select distinct
+        page_location_clean
+        , true as has_been_status_checked
+    from 
+        http_status_code
+)
+
 -- Cross join every insights page to every date, then filter to valid periods (i.e. not before a page was seen live)
 , page_date_matrix as (
     select
         d.event_date_dt
         , p.page_location_clean
         , p.first_seen_date
+        , coalesce(psc.has_been_status_checked, false) as has_been_status_checked
     from 
         first_insight_page_date p
     cross join 
         calendar d
+    left join 
+        pages_with_status_checks psc on p.page_location_clean = psc.page_location_clean
     where 
         d.event_date_dt >= p.first_seen_date
 )
@@ -57,6 +69,7 @@ with first_insight_page_date as (
         pdm.event_date_dt
         , pdm.page_location_clean
         , pdm.first_seen_date
+        , pdm.has_been_status_checked
         , hsc.http_status
         , row_number() over (
             partition by pdm.page_location_clean, pdm.event_date_dt
@@ -74,10 +87,12 @@ with first_insight_page_date as (
         event_date_dt
         , page_location_clean
         , first_seen_date
+        , has_been_status_checked
         , http_status
         , date_diff(event_date_dt, first_seen_date, DAY) + 1 as days_live
-        , date_diff(date_trunc(event_date_dt, WEEK(MONDAY)), date_trunc(first_seen_date, WEEK(MONDAY)), WEEK) + 1 as weeks_live
-        , date_diff(date_trunc(event_date_dt, MONTH), date_trunc(first_seen_date, MONTH), MONTH) + 1 as months_live
+        -- Calculate weeks/months live based on 7/30 day periods from first_seen_date
+        , div(date_diff(event_date_dt, first_seen_date, DAY), 7) + 1 as weeks_live
+        , div(date_diff(event_date_dt, first_seen_date, DAY), 30) + 1 as months_live
         -- Calculate key lifecycle dates per page
         , max(case when http_status = 200 then event_date_dt end) over (partition by page_location_clean) as last_200_date
         , min(case when http_status != 200 and http_status is not null then event_date_dt end) over (partition by page_location_clean) as first_non_200_date
@@ -93,6 +108,7 @@ select
     event_date_dt
     , page_location_clean
     , first_seen_date
+    , has_been_status_checked
     , http_status
     , days_live
     , weeks_live
@@ -114,9 +130,10 @@ select
     , case when last_200_date is not null then true else false end as ever_had_200_status
     , case when first_non_200_date is not null and event_date_dt >= first_non_200_date then true else false end as is_post_failure
     , case when event_date_dt = first_seen_date then true else false end as is_first_seen_date
+    -- Flag for pages that need HTTP status checking (new pages)
+    , case when not has_been_status_checked then true else false end as needs_status_check
     -- Weekly aggregation helpers
     , date_trunc(event_date_dt, WEEK(MONDAY)) as week_start_date
     , date_trunc(event_date_dt, MONTH) as month_start_date
 from 
     with_lifecycle_dates
-

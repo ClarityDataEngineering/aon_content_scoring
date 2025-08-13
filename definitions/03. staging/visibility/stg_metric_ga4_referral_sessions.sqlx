@@ -58,6 +58,21 @@ with base_sessions as (
     from 
         sessions_live_pages
 )
+-- Join the months live and calculate the monthly avg. Add filter to include rows only post first seen date
+, calc_monthly_avg as (
+    select
+        event_date_dt
+        , page_location_clean
+        , total_12_months
+        , months_live
+        , first_seen_date
+        -- Divide by months live, though if months live is greater than 12 then return 12
+        , cast(round(safe_divide(total_12_months, least(months_live, 12))) as int64) as monthly_avg
+    from 
+        rolling_12_month
+    where
+        event_date_dt >= first_seen_date
+)
 
 -- Calculate monthly average and traffic score
 select
@@ -66,14 +81,14 @@ select
     , total_12_months
     , months_live
     , first_seen_date
-    , cast(round(safe_divide(total_12_months, months_live)) as int64) as monthly_avg
+    , monthly_avg
     , case
-        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 100 then 5
-        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 30 then 4
-        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 10 then 3
-        when cast(round(safe_divide(total_12_months, months_live)) as int64) >= 3 then 2
-        when cast(round(safe_divide(total_12_months, months_live)) as int64) < 3 then 1
+        when monthly_avg >= 100 then 5
+        when monthly_avg >= 30 then 4
+        when monthly_avg >= 10 then 3
+        when monthly_avg >= 3 then 2
+        when monthly_avg < 3 then 1
         else null
     end as score_ga4_referral_traffic
 from 
-    rolling_12_month
+    calc_monthly_avg

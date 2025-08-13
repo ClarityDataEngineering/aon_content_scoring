@@ -105,8 +105,48 @@ with base_unique_pv as (
     from 
         rolling_12_month_with_lag
 )
--- Final trajectory score calculation
-
+-- Calculate trajectory score
+, calculate_trajectory_score as (
+    select
+        event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , weeks_live
+        , total_12_months
+        , total_12_months_4_weeks_ago
+        , growth_velocity
+        , pageviews_stddev
+        , case 
+            when weeks_live <= 4 then 0.00  -- First 4 weeks always 0
+            when pageviews_stddev > 0 
+            then round((growth_velocity * 0.5) + ((1.0 / pageviews_stddev) * 0.5), 2)
+            else 0.00
+            end as trajectory_score
+    from 
+        trajectory_components
+)
+-- Calculate the weekly percentiles for trajectory score
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , first_seen_date
+        , months_live
+        , weeks_live
+        , total_12_months
+        , total_12_months_4_weeks_ago
+        , growth_velocity
+        , pageviews_stddev
+        , trajectory_score
+        , cast(round(percentile_cont(trajectory_score, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
+        , cast(round(percentile_cont(trajectory_score, 0.70) over(partition by event_date_dt)) as int64) as percentile_70
+        , cast(round(percentile_cont(trajectory_score, 0.50) over(partition by event_date_dt)) as int64) as percentile_50
+        , cast(round(percentile_cont(trajectory_score, 0.30) over(partition by event_date_dt)) as int64) as percentile_30
+    from 
+        calculate_trajectory_score
+)
+-- Final output and logic for trajectory scoring based on the percentile
 select
     event_date_dt
     , page_location_clean
@@ -117,11 +157,17 @@ select
     , total_12_months_4_weeks_ago
     , growth_velocity
     , pageviews_stddev
+    , trajectory_score
+    , percentile_90
+    , percentile_70
+    , percentile_50
+    , percentile_30
     , case 
-        when weeks_live <= 4 then 0.00  -- First 4 weeks always 0
-        when pageviews_stddev > 0 
-        then round((growth_velocity * 0.5) + ((1.0 / pageviews_stddev) * 0.5), 2)
-        else 0.00
-        end as trajectory_score
+        when trajectory_score >= percentile_90 then 5
+        when trajectory_score >= percentile_70 and trajectory_score < percentile_90 then 4
+        when trajectory_score >= percentile_50 and trajectory_score < percentile_70 then 3
+        when trajectory_score >= percentile_30 and trajectory_score < percentile_50 then 2
+        when trajectory_score < percentile_30 then 1
+    end as score_trajectory_percentile
 from 
-    trajectory_components
+    weekly_percentiles
