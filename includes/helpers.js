@@ -22,8 +22,22 @@ function generateCalendar(startDateStr) {
  * Cleans a URL, removing all query strings 
  */
 function sanitiseURL(url) {
-    return `REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(${url}, r'^(https?:\\/\\/)?(www\\.)?', ''), r'[^a-zA-Z0-9\\-\\/:.\\s].*', ''), r'[^\\x00-\\x7F].*', '')`
-};
+  return `
+    REGEXP_REPLACE(                                            -- 5) strip trailing slash(es)
+      REGEXP_REPLACE(                                          -- 4) drop non-ASCII
+        REGEXP_REPLACE(                                        -- 3) drop disallowed char
+          REGEXP_REPLACE(                                      -- 2) remove whitespace
+            REGEXP_REPLACE(${url}, r'^(https?:\\/\\/)?(www\\.)?', ''),  -- 1) strip scheme+www
+            r'\\s+', ''
+          ),
+          r'[^a-zA-Z0-9\\-\\/:.].*', ''
+        ),
+        r'[^\\x00-\\x7F].*', ''
+      ),
+      r'/+$', ''
+    )
+  `;
+}
 
 module.exports = {
     generateCalendar, 

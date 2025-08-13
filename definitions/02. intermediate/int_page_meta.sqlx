@@ -23,6 +23,7 @@ select
   , pa.page_language
   , pf.organic_post_frequency
   , ts.trajectory_score
+  , ts.score_trajectory_percentile
 from 
   ${ref('stg_ga4_page_live_weekly_scaffold')} ws
 left join ${ref('stg_meta_pages_media_spend')} ms

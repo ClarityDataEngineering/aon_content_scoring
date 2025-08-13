@@ -8,7 +8,7 @@ config {
         }
     }
 }
--- NOTE: A lot of URLs use bit.ly link which needs to be resolved to final URL (Cloud Function Required)
+-- Get media spend from ads roll up at the destination URL
 select
     date_trunc(date, week(MONDAY)) as event_date_dt
     , ${helpers.sanitiseURL('creative_destination_url')} as page_location_clean

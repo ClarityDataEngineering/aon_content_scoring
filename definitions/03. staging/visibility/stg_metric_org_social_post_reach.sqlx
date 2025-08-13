@@ -38,9 +38,9 @@ config {
         , sc.months_live
         , sc.last_200_date
     from 
-        base_reach br
-    left join 
         ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base_reach br
         using (event_date_dt, page_location_clean)
     where
         sc.is_page_live_week = true 
@@ -66,7 +66,8 @@ config {
         , total_12_months
         , months_live
         , first_seen_date
-        , cast(round(safe_divide(total_12_months, months_live)) as int64) as monthly_avg
+        -- Divide by months live, though if months live is greater than 12 then return 12
+        , cast(round(safe_divide(total_12_months, least(months_live, 12))) as int64) as monthly_avg
     from 
         rolling_12_month
     where

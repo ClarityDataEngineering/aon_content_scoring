@@ -64,7 +64,8 @@ with base_clicks as (
         , total_12_months
         , months_live
         , first_seen_date
-        , cast(round(safe_divide(total_12_months, months_live)) as int64) as monthly_avg
+        -- Divide by months live, though if months live is greater than 12 then return 12
+        , cast(round(safe_divide(total_12_months, least(months_live, 12))) as int64) as monthly_avg
     from 
         rolling_12_month
     where
