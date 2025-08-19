@@ -1,0 +1,88 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Provides weekly backlink scores for each live page, benchmarked against percentile thresholds, assigning a score from 1 (lowest) to 5 (highest).',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_org_rank_backlinks"
+        }
+    }
+}
+
+-- Get avg backlink authority for a given week - if a url is missing in a week, then backfill from previous week 
+with base_backlinks as (
+    select
+        event_date_dt,
+        page_location_clean,
+        coalesce(total_backlinks, latest_total_backlinks) as total_backlinks
+    from (
+        select
+            date_trunc(date, week(MONDAY)) as event_date_dt,
+            page_location_clean,
+            total_backlinks,
+            row_number() over (
+                partition by date_trunc(date, week(MONDAY)), page_location_clean 
+                order by date desc
+            ) as rn_within_week,
+            last_value(total_backlinks ignore nulls) over (
+                partition by page_location_clean
+                order by date
+                rows unbounded preceding
+            ) as latest_total_backlinks
+        from ${ref('final_backlinks_overview')}
+        where regexp_contains(page_location_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+            and date >= "${project_config.START_DATE}"
+    )
+    -- Ensure only returning one row per week
+    where rn_within_week = 1
+)
+-- Join with weekly scaffold 
+, backlinks_live_pages as (
+    select
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(bs.total_backlinks, 0) as total_backlinks
+        , sc.first_seen_date
+        , sc.months_live
+    from 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base_backlinks bs
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true  -- Only include pages where the page is live in a given week
+) 
+-- Calculate the percentiles at a weekly cadence 
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , months_live
+        , first_seen_date
+        , total_backlinks
+        , cast(round(percentile_cont(total_backlinks, 0.95) over(partition by event_date_dt)) as int64) as percentile_95
+        , cast(round(percentile_cont(total_backlinks, 0.9) over(partition by event_date_dt)) as int64) as percentile_90
+        , cast(round(percentile_cont(total_backlinks, 0.70) over(partition by event_date_dt)) as int64) as percentile_70
+    from 
+        backlinks_live_pages
+)
+
+-- Add case for reach percentile scoring logic
+select
+    event_date_dt
+    , page_location_clean
+    , months_live
+    , first_seen_date
+    , total_backlinks
+    , percentile_95
+    , percentile_90
+    , percentile_70
+    , case 
+        when total_backlinks = 0 then 1
+        when total_backlinks >= percentile_95 then 5
+        when total_backlinks >= percentile_90 and total_backlinks < percentile_95 then 4
+        when total_backlinks >= percentile_70 and total_backlinks < percentile_90 then 3
+        else 2
+    end as score_org_rank_backlinks
+from 
+    weekly_percentiles

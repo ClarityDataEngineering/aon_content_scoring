@@ -18,6 +18,9 @@ select
     , ctr.score_gsc_ctr
     , brq.score_gsc_branded_queries
     , rch.score_org_social_reach
+    , obk.score_org_rank_backlinks
+    , ork.score_org_rank_rankings
+    , ord.score_org_rank_ref_domain_authority
 from 
     ${ref('stg_ga4_page_live_weekly_scaffold')} wps
 left join ${ref('stg_metric_ga4_referral_sessions')} mrs
@@ -31,6 +34,12 @@ left join ${ref('stg_metric_gsc_branded_queries')} brq
 left join ${ref('stg_metric_gsc_ctr')} ctr
     using(event_date_dt, page_location_clean)
 left join ${ref('stg_metric_org_social_post_reach')} rch
+    using(event_date_dt, page_location_clean)
+left join ${ref('stg_metric_org_rank_backlinks')} obk
+    using(event_date_dt, page_location_clean)
+left join ${ref('stg_metric_org_rank_rankings')} ork
+    using(event_date_dt, page_location_clean)
+left join ${ref('stg_metric_org_rank_ref_domain_authority')} ord
     using(event_date_dt, page_location_clean)
 
 where

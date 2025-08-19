@@ -31,9 +31,9 @@ config {
 -- Join status with impressions and filter by HTTP status 
 , post_engagements_with_status as (
     select
-        be.event_date_dt
-        , be.page_location_clean
-        , be.engagements
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(be.engagements, 0) as engagements
         , sc.first_seen_date
         , sc.months_live
         , sc.last_200_date

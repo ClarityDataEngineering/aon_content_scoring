@@ -1,0 +1,88 @@
+config {
+    type: 'view',
+    schema: project_config.OUTPUT_STAGING_DATASET, 
+    description: 'Provides weekly avg referring domain authority scores for each live page, benchmarked against percentile thresholds, assigning a score from 1 (lowest) to 5 (highest).',
+    bigquery: {
+        labels: {
+          table_name: "content_scoring_stg_metric_org_rank_ref_domain_authority"
+        }
+    }
+}
+
+-- Get backlinks for a given week - if a url is missing in a week, then backfill from previous week 
+with base_ref_domain_auth as (
+    select
+        event_date_dt,
+        page_location_clean,
+        coalesce(avg_ref_domain_authority_score, latest_avg_ref_domain_authority_score) as avg_ref_domain_authority_score
+    from (
+        select
+            date_trunc(date, week(MONDAY)) as event_date_dt,
+            page_location_clean,
+            avg_ref_domain_authority_score,
+            row_number() over (
+                partition by date_trunc(date, week(MONDAY)), page_location_clean 
+                order by date desc
+            ) as rn_within_week,
+            last_value(avg_ref_domain_authority_score ignore nulls) over (
+                partition by page_location_clean
+                order by date
+                rows unbounded preceding
+            ) as latest_avg_ref_domain_authority_score
+        from ${ref('final_backlinks_overview')}
+        where regexp_contains(page_location_clean, r'${project_config.PAGES_TO_INCLUDE_RX}')
+            and date >= "${project_config.START_DATE}"
+    )
+    -- Ensure only returning one row per week
+    where rn_within_week = 1
+)
+-- Join with weekly scaffold 
+, backlinks_live_pages as (
+    select
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(bs.avg_ref_domain_authority_score, 0) as avg_ref_domain_authority_score
+        , sc.first_seen_date
+        , sc.months_live
+    from 
+        ${ref('stg_ga4_page_live_weekly_scaffold')} sc
+    left join 
+        base_ref_domain_auth bs
+        using (event_date_dt, page_location_clean)
+    where
+        sc.is_page_live_week = true  -- Only include pages where the page is live in a given week
+) 
+-- Calculate the percentiles at a weekly cadence 
+, weekly_percentiles as (
+    select
+        event_date_dt
+        , page_location_clean
+        , months_live
+        , first_seen_date
+        , avg_ref_domain_authority_score
+        , cast(round(percentile_cont(avg_ref_domain_authority_score, 0.8) over(partition by event_date_dt)) as int64) as percentile_80
+        , cast(round(percentile_cont(avg_ref_domain_authority_score, 0.6) over(partition by event_date_dt)) as int64) as percentile_60
+        , cast(round(percentile_cont(avg_ref_domain_authority_score, 0.4) over(partition by event_date_dt)) as int64) as percentile_40
+    from 
+        backlinks_live_pages
+)
+
+-- Add case for reach percentile scoring logic
+select
+    event_date_dt
+    , page_location_clean
+    , months_live
+    , first_seen_date
+    , avg_ref_domain_authority_score
+    , percentile_80
+    , percentile_60
+    , percentile_40
+    , case 
+        when avg_ref_domain_authority_score = 0 then 1
+        when avg_ref_domain_authority_score >= percentile_80 then 5
+        when avg_ref_domain_authority_score >= percentile_60 and avg_ref_domain_authority_score < percentile_80 then 4
+        when avg_ref_domain_authority_score >= percentile_40 and avg_ref_domain_authority_score < percentile_60 then 3
+        else 2
+    end as score_org_rank_ref_domain_authority
+from 
+    weekly_percentiles

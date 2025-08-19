@@ -31,9 +31,9 @@ config {
 -- Join status with impressions and filter by HTTP status 
 , post_reach_with_status as (
     select
-        br.event_date_dt
-        , br.page_location_clean
-        , br.reach
+        sc.event_date_dt
+        , sc.page_location_clean
+        , coalesce(br.reach, 0) as reach
         , sc.first_seen_date
         , sc.months_live
         , sc.last_200_date

@@ -36,6 +36,9 @@ with join_page_and_metrics as (
     , vs.score_gsc_ctr
     , vs.score_gsc_branded_queries
     , vs.score_org_social_reach
+    , vs.score_org_rank_backlinks
+    , vs.score_org_rank_rankings
+    , vs.score_org_rank_ref_domain_authority
     
     -- Engagement metrics
     , eg.score_ga4_engagement_time
@@ -53,8 +56,11 @@ with join_page_and_metrics as (
         coalesce(vs.score_gsc_impressions, 0) +
         coalesce(vs.score_gsc_ctr, 0) +
         coalesce(vs.score_gsc_branded_queries, 0) +
-        coalesce(vs.score_org_social_reach, 0)
-      ) / 6.0, 2) as overall_score_visibility
+        coalesce(vs.score_org_social_reach, 0) +
+        coalesce(vs.score_org_rank_backlinks, 0) +
+        coalesce(vs.score_org_rank_rankings, 0) +
+        coalesce(vs.score_org_rank_ref_domain_authority, 0) 
+      ) / 9.0, 2) as overall_score_visibility
     
     , round((
         coalesce(eg.score_ga4_engagement_time, 0) +
@@ -73,12 +79,15 @@ with join_page_and_metrics as (
         coalesce(vs.score_gsc_ctr, 0) +
         coalesce(vs.score_gsc_branded_queries, 0) +
         coalesce(vs.score_org_social_reach, 0) +
+        coalesce(vs.score_org_rank_backlinks, 0) +
+        coalesce(vs.score_org_rank_rankings, 0) +
+        coalesce(vs.score_org_rank_ref_domain_authority, 0) +
         coalesce(eg.score_ga4_engagement_time, 0) +
         coalesce(eg.score_ga4_new_vs_returning_users, 0) +
         coalesce(eg.score_ga4_unique_pageviews, 0) +
         coalesce(eg.score_org_social_engagements_score, 0) +
         coalesce(cv.score_ga4_form_submits, 0)
-      ) / 11.0, 2) as overall_score
+      ) / 14.0, 2) as overall_score
     
   from ${ref('int_page_meta')} pm
   left join ${ref('int_visibility')} vs
@@ -120,6 +129,9 @@ final_scores as (
       , score_gsc_ctr
       , score_gsc_branded_queries
       , score_org_social_reach
+      , score_org_rank_backlinks
+      , score_org_rank_rankings
+      , score_org_rank_ref_domain_authority
       , overall_score_visibility
     ) as visibility_scores
     
