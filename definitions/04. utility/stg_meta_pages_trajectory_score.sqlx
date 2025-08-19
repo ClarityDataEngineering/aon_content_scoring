@@ -90,7 +90,7 @@ with base_unique_pv as (
         , case 
             when weeks_live <= 4 then 0 -- First 4 weeks always 0
             when total_12_months_4_weeks_ago > 0 and months_live >= 1
-            then (total_12_months - total_12_months_4_weeks_ago) / greatest(months_live, 1)
+            then (total_12_months - total_12_months_4_weeks_ago) / least(months_live, 12)
             else 0 
           end as growth_velocity
         -- Calculate rolling standard deviation of weekly pageviews over past 12 months
