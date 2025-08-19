@@ -1,7 +1,7 @@
 config {
     type: 'view',
     schema: project_config.OUTPUT_STAGING_DATASET, 
-    description: 'Weekly GSC clicks per content page with 12-month rolling total, months live, monthly average, and weekly relative percentile-based scoring. For each week and page, assigns a score from 1 (bottom 40%) to 5 (top 20%) based on the distribution of monthly average clicks among all pages that week.',
+    description: 'Weekly GSC clicks per content page with 12-month rolling total, months live, monthly average, and weekly relative percentile-based scoring. For each week and page, assigns a score from 1 to 5 based on the distribution of monthly average clicks among all pages that week.',
     bigquery: {
         labels: {
           table_name: "content_scoring_stg_metric_gsc_clicks"
