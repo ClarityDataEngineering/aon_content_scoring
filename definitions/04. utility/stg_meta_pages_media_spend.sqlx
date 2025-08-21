@@ -8,15 +8,29 @@ config {
         }
     }
 }
--- Get media spend from ads roll up at the destination URL
-select
-    date_trunc(date, week(MONDAY)) as event_date_dt
-    , ${helpers.sanitiseURL('creative_destination_url')} as page_location_clean
-    , sum(cost_in_usd) as media_spend_in_usd
-from 
-    ${ref('ad_report')}
-where
-    regexp_contains(creative_destination_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
-group by
-    event_date_dt
-    , page_location_clean
+
+with base_media_spend as (
+    -- Get media spend from ads roll up at the destination URL
+    select
+        date_trunc(date, week(MONDAY)) as event_date_dt
+        , ${helpers.sanitiseURL('creative_destination_url')} as page_location_clean
+        , sum(cost_in_usd) as media_spend_in_usd
+    from 
+        ${ref('ad_report')}
+    where
+        regexp_contains(${helpers.sanitiseURL('creative_destination_url')}, r'${project_config.PAGES_TO_INCLUDE_RX}')
+    group by
+        event_date_dt
+        , page_location_clean
+)
+, get_rolling_media_spend as (
+    select
+        event_date_dt
+        , page_location_clean
+        , media_spend_in_usd as media_spend_in_usd_current_week
+        , sum(media_spend_in_usd) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as media_spend_in_usd_total_12_months
+    from 
+        base_media_spend
+)
+
+select * from get_rolling_media_spend

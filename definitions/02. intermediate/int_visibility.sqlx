@@ -16,7 +16,7 @@ select
     , clk.score_gsc_clicks
     , imp.score_gsc_impressions
     , ctr.score_gsc_ctr
-    , brq.score_gsc_branded_queries
+    , brq.score_gsc_non_branded_queries
     , rch.score_org_social_reach
     , obk.score_org_rank_backlinks
     , ork.score_org_rank_rankings
@@ -29,7 +29,7 @@ left join ${ref('stg_metric_gsc_clicks')} clk
     using(event_date_dt, page_location_clean)
 left join ${ref('stg_metric_gsc_impressions')} imp
     using(event_date_dt, page_location_clean)
-left join ${ref('stg_metric_gsc_branded_queries')} brq
+left join ${ref('stg_metric_gsc_non_branded_queries')} brq
     using(event_date_dt, page_location_clean)
 left join ${ref('stg_metric_gsc_ctr')} ctr
     using(event_date_dt, page_location_clean)

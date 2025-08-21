@@ -14,7 +14,8 @@ select
   , ws.page_location_clean
   , ws.first_seen_date
   , ws.months_live
-  , ms.media_spend_in_usd
+  , ms.media_spend_in_usd_current_week
+  , ms.media_spend_in_usd_total_12_months
   , pa.page_type_group
   , pa.page_business_line
   , pa.page_industry

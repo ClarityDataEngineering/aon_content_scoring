@@ -18,26 +18,74 @@ function generateCalendar(startDateStr) {
         `;
 }
 
+
 /**
- * Cleans a URL, removing all query strings 
+ * Cleans URLs by removing protocols, www, query strings, and standardizing format
+ * Preserves trailing slashes for homepages (domain.com/ or domain.com/en/)
+ * Removes trailing slashes for all other pages
  */
-function sanitiseURL(url) {
+function sanitiseURL(column) {
   return `
-    REGEXP_REPLACE(                                            -- 5) strip trailing slash(es)
-      REGEXP_REPLACE(                                          -- 4) drop non-ASCII
-        REGEXP_REPLACE(                                        -- 3) drop disallowed char
-          REGEXP_REPLACE(                                      -- 2) remove whitespace
-            REGEXP_REPLACE(${url}, r'^(https?:\\/\\/)?(www\\.)?', ''),  -- 1) strip scheme+www
-            r'\\s+', ''
+    (
+      CASE
+        WHEN REGEXP_CONTAINS(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    LOWER(${column}),
+                    r'^(https?:\\/\\/)?(www\\.)?', ''
+                  ),
+                  r'\\s+', ''
+                ),
+                r'[\\?#].*$', ''         -- move this up
+              ),
+              r'[^\\x00-\\x7F]', ''
+            ),
+            r'[^a-z0-9\\-\\/:._=&]', '' -- now runs after query removal
           ),
-          r'[^a-zA-Z0-9\\-\\/:.].*', ''
-        ),
-        r'[^\\x00-\\x7F].*', ''
-      ),
-      r'/+$', ''
+          r'^[a-z0-9\\-]+\\.[a-z]{2,}(\\/[a-z]{2})?\\/?$'
+        )
+        THEN
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    LOWER(${column}),
+                    r'^(https?:\\/\\/)?(www\\.)?', ''
+                  ),
+                  r'\\s+', ''
+                ),
+                r'[\\?#].*$', ''         -- same reordering here
+              ),
+              r'[^\\x00-\\x7F]', ''
+            ),
+            r'/+$', '/'
+          )
+        ELSE
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    LOWER(${column}),
+                    r'^(https?:\\/\\/)?(www\\.)?', ''
+                  ),
+                  r'\\s+', ''
+                ),
+                r'[\\?#].*$', ''         -- and here
+              ),
+              r'[^\\x00-\\x7F]', ''
+            ),
+            r'/+$', ''
+          )
+      END
     )
   `;
 }
+
 
 module.exports = {
     generateCalendar, 

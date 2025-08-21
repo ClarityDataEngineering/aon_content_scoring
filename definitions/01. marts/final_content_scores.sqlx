@@ -18,7 +18,8 @@ with join_page_and_metrics as (
     , pm.page_location_clean
     , pm.first_seen_date
     , pm.months_live
-    , pm.media_spend_in_usd
+    , pm.media_spend_in_usd_current_week
+    , pm.media_spend_in_usd_total_12_months
     , pm.page_type_group
     , pm.page_business_line
     , pm.page_industry
@@ -34,7 +35,7 @@ with join_page_and_metrics as (
     , vs.score_gsc_clicks
     , vs.score_gsc_impressions
     , vs.score_gsc_ctr
-    , vs.score_gsc_branded_queries
+    , vs.score_gsc_non_branded_queries
     , vs.score_org_social_reach
     , vs.score_org_rank_backlinks
     , vs.score_org_rank_rankings
@@ -55,7 +56,7 @@ with join_page_and_metrics as (
         coalesce(vs.score_gsc_clicks, 0) +
         coalesce(vs.score_gsc_impressions, 0) +
         coalesce(vs.score_gsc_ctr, 0) +
-        coalesce(vs.score_gsc_branded_queries, 0) +
+        coalesce(vs.score_gsc_non_branded_queries, 0) +
         coalesce(vs.score_org_social_reach, 0) +
         coalesce(vs.score_org_rank_backlinks, 0) +
         coalesce(vs.score_org_rank_rankings, 0) +
@@ -77,7 +78,7 @@ with join_page_and_metrics as (
         coalesce(vs.score_gsc_clicks, 0) +
         coalesce(vs.score_gsc_impressions, 0) +
         coalesce(vs.score_gsc_ctr, 0) +
-        coalesce(vs.score_gsc_branded_queries, 0) +
+        coalesce(vs.score_gsc_non_branded_queries, 0) +
         coalesce(vs.score_org_social_reach, 0) +
         coalesce(vs.score_org_rank_backlinks, 0) +
         coalesce(vs.score_org_rank_rankings, 0) +
@@ -106,7 +107,8 @@ final_scores as (
     , page_location_clean
     , first_seen_date
     , months_live
-    , media_spend_in_usd
+    , media_spend_in_usd_current_week
+    , media_spend_in_usd_total_12_months
     , organic_post_frequency
     , trajectory_score
     , score_trajectory_percentile
@@ -127,7 +129,7 @@ final_scores as (
       , score_gsc_clicks
       , score_gsc_impressions
       , score_gsc_ctr
-      , score_gsc_branded_queries
+      , score_gsc_non_branded_queries
       , score_org_social_reach
       , score_org_rank_backlinks
       , score_org_rank_rankings
