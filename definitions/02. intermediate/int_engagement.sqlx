@@ -13,14 +13,11 @@ select
     wps.event_date_dt
     , wps.page_location_clean
     , egt.score_ga4_engagement_time
-    , nru.score_ga4_new_vs_returning_users
     , upv.score_ga4_unique_pageviews
     , ope.score_org_social_engagements_score
 from 
     ${ref('stg_ga4_page_live_weekly_scaffold')} wps
 left join ${ref('stg_metric_ga4_engagement_time')} egt
-    using(event_date_dt, page_location_clean)
-left join ${ref('stg_metric_ga4_new_vs_returning_users')} nru
     using(event_date_dt, page_location_clean)
 left join ${ref('stg_metric_ga4_unique_pageviews')} upv
     using(event_date_dt, page_location_clean)
