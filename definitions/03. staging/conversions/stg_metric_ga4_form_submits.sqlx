@@ -73,8 +73,8 @@ with base_form_submits as (
         event_date_dt >= first_seen_date
 )
 
--- Calculate the percentiles at a weekly cadence based on 12 month rolling avg  
-, weekly_percentiles as (
+-- Add percentage calculation
+, with_percentages as (
     select
         event_date_dt
         , page_location_clean
@@ -82,9 +82,8 @@ with base_form_submits as (
         , months_live
         , first_seen_date
         , monthly_avg
-        , cast(round(percentile_cont(monthly_avg, 0.95) over(partition by event_date_dt)) as int64) as percentile_95
-        , cast(round(percentile_cont(monthly_avg, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
-        , cast(round(percentile_cont(monthly_avg, 0.80) over(partition by event_date_dt)) as int64) as percentile_80
+        , sum(monthly_avg) over(partition by event_date_dt) as total_monthly_avg_for_week
+        , round(safe_divide(monthly_avg, sum(monthly_avg) over(partition by event_date_dt)) * 100, 2) as monthly_avg_percentage
     from 
         calc_monthly_avg
 )
@@ -97,15 +96,15 @@ select
     , months_live
     , first_seen_date
     , monthly_avg
-    , percentile_95
-    , percentile_90
-    , percentile_80
-    , case 
-        when monthly_avg = 0 then 1
-        when monthly_avg >= percentile_95 then 5
-        when monthly_avg >= percentile_90 and monthly_avg < percentile_95 then 4
-        when monthly_avg >= percentile_80 and monthly_avg < percentile_90 then 3
-        when monthly_avg < percentile_80 then 2
+    , total_monthly_avg_for_week
+    , monthly_avg_percentage
+    , case
+        when monthly_avg_percentage = 0 then 1
+        when monthly_avg_percentage >= 2 then 5
+        when monthly_avg_percentage >= 0.5 and monthly_avg_percentage < 2 then 4
+        when monthly_avg_percentage >= 0.1 and monthly_avg_percentage < 0.5 then 3
+        when monthly_avg_percentage > 0 and monthly_avg_percentage < 0.1 then 2
+        else null
     end as score_ga4_form_submits
 from 
-    weekly_percentiles
+    with_percentages 

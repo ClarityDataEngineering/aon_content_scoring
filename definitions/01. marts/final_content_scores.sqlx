@@ -43,7 +43,6 @@ with join_page_and_metrics as (
     
     -- Engagement metrics
     , eg.score_ga4_engagement_time
-    , eg.score_ga4_new_vs_returning_users
     , eg.score_ga4_unique_pageviews
     , eg.score_org_social_engagements_score
     
@@ -65,10 +64,9 @@ with join_page_and_metrics as (
     
     , round((
         coalesce(eg.score_ga4_engagement_time, 0) +
-        coalesce(eg.score_ga4_new_vs_returning_users, 0) +
         coalesce(eg.score_ga4_unique_pageviews, 0) +
         coalesce(eg.score_org_social_engagements_score, 0)
-      ) / 4.0, 2) as overall_score_engagement
+      ) / 3.0, 2) as overall_score_engagement
     
     , round(coalesce(cv.score_ga4_form_submits, 0), 2) as overall_score_conversion
     
@@ -84,11 +82,10 @@ with join_page_and_metrics as (
         coalesce(vs.score_org_rank_rankings, 0) +
         coalesce(vs.score_org_rank_ref_domain_authority, 0) +
         coalesce(eg.score_ga4_engagement_time, 0) +
-        coalesce(eg.score_ga4_new_vs_returning_users, 0) +
         coalesce(eg.score_ga4_unique_pageviews, 0) +
         coalesce(eg.score_org_social_engagements_score, 0) +
         coalesce(cv.score_ga4_form_submits, 0)
-      ) / 14.0, 2) as overall_score
+      ) / 13.0, 2) as overall_score
     
   from ${ref('int_page_meta')} pm
   left join ${ref('int_visibility')} vs
@@ -140,7 +137,6 @@ final_scores as (
     -- Engagement performance metrics
     , struct(
         score_ga4_engagement_time
-      , score_ga4_new_vs_returning_users
       , score_ga4_unique_pageviews
       , score_org_social_engagements_score
       , overall_score_engagement
