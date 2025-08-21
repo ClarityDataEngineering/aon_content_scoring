@@ -81,10 +81,9 @@ with base_queries as (
         , months_live
         , first_seen_date
         , monthly_avg
-        , cast(round(percentile_cont(monthly_avg, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
         , cast(round(percentile_cont(monthly_avg, 0.80) over(partition by event_date_dt)) as int64) as percentile_80
-        , cast(round(percentile_cont(monthly_avg, 0.70) over(partition by event_date_dt)) as int64) as percentile_70
-        , cast(round(percentile_cont(monthly_avg, 0.50) over(partition by event_date_dt)) as int64) as percentile_50
+        , cast(round(percentile_cont(monthly_avg, 0.60) over(partition by event_date_dt)) as int64) as percentile_60
+        , cast(round(percentile_cont(monthly_avg, 0.40) over(partition by event_date_dt)) as int64) as percentile_40
     from 
         calc_monthly_avg
 )
@@ -97,16 +96,15 @@ select
     , months_live
     , first_seen_date
     , monthly_avg
-    , percentile_90
     , percentile_80
-    , percentile_70
-    , percentile_50
+    , percentile_60
+    , percentile_40
     , case 
-        when monthly_avg >= percentile_90 then 5
-        when monthly_avg >= percentile_80 and monthly_avg < percentile_90 then 4
-        when monthly_avg >= percentile_70 and monthly_avg < percentile_80 then 3
-        when monthly_avg >= percentile_50 and monthly_avg < percentile_70 then 2
-        when monthly_avg < percentile_50 then 1
-    end as score_gsc_branded_queries
+        when monthly_avg = 0 then 1
+        when monthly_avg >= percentile_80 then 5
+        when monthly_avg >= percentile_60 and monthly_avg < percentile_80 then 4
+        when monthly_avg >= percentile_40 and monthly_avg < percentile_60 then 3
+        when monthly_avg < percentile_40 then 2
+    end as score_gsc_non_branded_queries
 from 
     weekly_percentiles

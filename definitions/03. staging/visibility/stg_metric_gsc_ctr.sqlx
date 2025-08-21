@@ -67,7 +67,7 @@ with base as (
         , first_seen_date
         , total_impressions_12_months
         , total_clicks_12_months
-        , round(safe_divide(total_clicks_12_months, total_impressions_12_months) * 100, 1) as rolling_12_month_ctr
+        , coalesce(round(safe_divide(total_clicks_12_months, total_impressions_12_months) * 100, 1), 0) as rolling_12_month_ctr
     from 
         rolling_12_month 
 )

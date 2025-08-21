@@ -83,11 +83,11 @@ select
     , first_seen_date
     , monthly_avg
     , case
+        when monthly_avg = 0 then 1
         when monthly_avg >= 100 then 5
-        when monthly_avg >= 30 then 4
-        when monthly_avg >= 10 then 3
-        when monthly_avg >= 3 then 2
-        when monthly_avg < 3 then 1
+        when monthly_avg >= 50 and monthly_avg < 100 then 4
+        when monthly_avg >= 10 and monthly_avg < 50 then 3
+        when monthly_avg >= 1 and monthly_avg < 10 then 2
         else null
     end as score_ga4_referral_traffic
 from 

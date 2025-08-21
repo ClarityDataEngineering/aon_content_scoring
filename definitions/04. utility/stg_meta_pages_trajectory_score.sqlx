@@ -88,14 +88,14 @@ with base_unique_pv as (
         , total_12_months_4_weeks_ago
         -- Growth calculation (4-week growth to approximate monthly)
         , case 
-            when weeks_live <= 4 then 0 -- First 4 weeks always 0
+            when weeks_live <= 8 then null -- First 8 weeks always null as new page
             when total_12_months_4_weeks_ago > 0 and months_live >= 1
             then (total_12_months - total_12_months_4_weeks_ago) / least(months_live, 12)
             else 0 
           end as growth_velocity
         -- Calculate rolling standard deviation of weekly pageviews over past 12 months
         , case 
-            when weeks_live <= 4 then 0  -- First 4 weeks always 0
+            when weeks_live <= 8 then null  -- First 8 weeks always null as new page
             else stddev(total_12_months) over (
                 partition by page_location_clean 
                 order by event_date_dt 
@@ -118,7 +118,7 @@ with base_unique_pv as (
         , growth_velocity
         , pageviews_stddev
         , case 
-            when weeks_live <= 4 then 0.00  -- First 4 weeks always 0
+            when weeks_live <= 8 then null  -- First 8 weeks always null as new page
             when pageviews_stddev > 0 
             then round((growth_velocity * 0.5) + ((1.0 / pageviews_stddev) * 0.5), 2)
             else 0.00
