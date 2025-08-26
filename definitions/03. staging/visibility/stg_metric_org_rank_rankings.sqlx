@@ -82,9 +82,9 @@ select
     , percentile_70
     , case 
         when keyword_count = 0 then 1
-        when keyword_count >= percentile_95 then 5
-        when keyword_count >= percentile_90 and keyword_count < percentile_95 then 4
-        when keyword_count >= percentile_70 and keyword_count < percentile_90 then 3
+        when keyword_count >= 10 then 5
+        when keyword_count >= 5 and keyword_count < 10 then 4
+        when keyword_count >= 2 and keyword_count < 5 then 3
         else 2
     end as score_org_rank_rankings
 from 
