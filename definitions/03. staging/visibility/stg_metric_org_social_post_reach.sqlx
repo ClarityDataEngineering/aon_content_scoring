@@ -22,6 +22,7 @@ config {
     where
         regexp_contains(post_link.post_link_url, r'${project_config.PAGES_TO_INCLUDE_RX}')
         and date >= "${project_config.START_DATE}"
+        and date_diff(date, created_date, day) <= 30  -- Only include posts within 30 days of creation
     group by 
         event_date_dt
         , post_link.post_link_url
@@ -46,69 +47,64 @@ config {
         sc.is_page_live_week = true 
 ) 
 
--- Use window function to calculate a 12 month rolling looking back over last 52 rows
-, rolling_12_month as (
+-- Use window function to calculate a 4 week rolling total looking back over last 4 rows (including current)
+, rolling_4_weeks as (
     select
         event_date_dt
         , page_location_clean
         , first_seen_date
         , months_live
-        , sum(reach) over (partition by page_location_clean order by event_date_dt rows between 51 preceding and current row) as total_12_months
+        , sum(reach) over (partition by page_location_clean order by event_date_dt rows between 3 preceding and current row) as total_4_week_reach
     from 
         post_reach_with_status
 )
 
--- Join the months live and calculate the monthly avg. Add filter to include rows only post first seen date
-, calc_monthly_avg as (
+-- Filter to include rows only post first seen date
+, reach_totals as (
     select
         event_date_dt
         , page_location_clean
-        , total_12_months
+        , total_4_week_reach
         , months_live
         , first_seen_date
-        -- Divide by months live, though if months live is greater than 12 then return 12
-        , cast(round(safe_divide(total_12_months, least(months_live, 12))) as int64) as monthly_avg
     from 
-        rolling_12_month
+        rolling_4_weeks
     where
         event_date_dt >= first_seen_date
 )
 
--- Calculate the percentiles at a weekly cadence based on 12 month rolling avg  
+-- Calculate the percentiles at a weekly cadence based on absolute 4 week totals  
 , weekly_percentiles as (
     select
         event_date_dt
         , page_location_clean
-        , total_12_months
+        , total_4_week_reach
         , months_live
         , first_seen_date
-        , monthly_avg
-        , cast(round(percentile_cont(monthly_avg, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
-        , cast(round(percentile_cont(monthly_avg, 0.80) over(partition by event_date_dt)) as int64) as percentile_80
-        , cast(round(percentile_cont(monthly_avg, 0.60) over(partition by event_date_dt)) as int64) as percentile_60
-        , cast(round(percentile_cont(monthly_avg, 0.40) over(partition by event_date_dt)) as int64) as percentile_40
+        -- Ignore pages with 0
+        , cast(round(percentile_cont(case when total_4_week_reach > 0 then total_4_week_reach end, 0.75) over(partition by event_date_dt)) as int64) as percentile_75
+        , cast(round(percentile_cont(case when total_4_week_reach > 0 then total_4_week_reach end, 0.50) over(partition by event_date_dt)) as int64) as percentile_50
+        , cast(round(percentile_cont(case when total_4_week_reach > 0 then total_4_week_reach end, 0.25) over(partition by event_date_dt)) as int64) as percentile_25
     from 
-        calc_monthly_avg
+        reach_totals
 )
 
 -- Add case for reach percentile scoring logic
 select
     event_date_dt
     , page_location_clean
-    , total_12_months
+    , total_4_week_reach
     , months_live
     , first_seen_date
-    , monthly_avg
-    , percentile_90
-    , percentile_80
-    , percentile_60
-    , percentile_40
+    , percentile_75
+    , percentile_50
+    , percentile_25
     , case 
-        when monthly_avg >= percentile_90 then 5
-        when monthly_avg >= percentile_80 and monthly_avg < percentile_90 then 4
-        when monthly_avg >= percentile_60 and monthly_avg < percentile_80 then 3
-        when monthly_avg >= percentile_40 and monthly_avg < percentile_60 then 2
-        when monthly_avg < percentile_40 then 1
+        when total_4_week_reach = 0 then 1
+        when total_4_week_reach >= percentile_75 then 5
+        when total_4_week_reach >= percentile_50 and total_4_week_reach < percentile_75 then 4
+        when total_4_week_reach >= percentile_25 and total_4_week_reach < percentile_50 then 3
+        when total_4_week_reach < percentile_25 then 2
     end as score_org_social_reach
 from 
     weekly_percentiles

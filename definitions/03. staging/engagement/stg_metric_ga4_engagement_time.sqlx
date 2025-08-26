@@ -85,8 +85,8 @@ with base_unique_pv as (
         , cast(round(percentile_cont(total_users_12_months, 0.20) over(partition by event_date_dt)) as int64) as users_qualified
         , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.90) over(partition by event_date_dt)) as int64) as percentile_90
         , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.70) over(partition by event_date_dt)) as int64) as percentile_70
-        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.50) over(partition by event_date_dt)) as int64) as percentile_50
-        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.30) over(partition by event_date_dt)) as int64) as percentile_30
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.40) over(partition by event_date_dt)) as int64) as percentile_40
+        , cast(round(percentile_cont(rolling_12_month_page_engagement_time_secs, 0.40) over(partition by event_date_dt)) as int64) as percentile_20
     from 
         calc_monthly_avg
 )
@@ -103,13 +103,13 @@ select
     , users_qualified
     , percentile_90
     , percentile_70
-    , percentile_50
-    , percentile_30
+    , percentile_40
+    , percentile_20
     , case 
         when rolling_12_month_page_engagement_time_secs >= percentile_90 and total_users_12_months >= users_qualified then 5
         when rolling_12_month_page_engagement_time_secs >= percentile_70 and rolling_12_month_page_engagement_time_secs < percentile_90 and total_users_12_months >= users_qualified then 4
-        when rolling_12_month_page_engagement_time_secs >= percentile_50 and rolling_12_month_page_engagement_time_secs < percentile_70 and total_users_12_months >= users_qualified then 3
-        when rolling_12_month_page_engagement_time_secs >= percentile_30 and rolling_12_month_page_engagement_time_secs < percentile_50 and total_users_12_months >= users_qualified then 2
+        when rolling_12_month_page_engagement_time_secs >= percentile_40 and rolling_12_month_page_engagement_time_secs < percentile_70 and total_users_12_months >= users_qualified then 3
+        when rolling_12_month_page_engagement_time_secs >= percentile_20 and rolling_12_month_page_engagement_time_secs < percentile_40 and total_users_12_months >= users_qualified then 2
         else 1
     end as score_ga4_engagement_time
 from 
