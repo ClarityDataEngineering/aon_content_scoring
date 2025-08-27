@@ -26,6 +26,9 @@ with join_page_and_metrics as (
     , pm.page_region
     , pm.page_country
     , pm.page_language
+    , pm.page_solution_line
+    , pm.page_capability
+    , pm.page_product_service
     , pm.organic_post_frequency
     , pm.trajectory_score
     , pm.score_trajectory_percentile
@@ -118,6 +121,9 @@ final_scores as (
       , page_region
       , page_country
       , page_language
+      , page_solution_line
+      , page_capability
+      , page_product_service
     ) as page_attributes
     
     -- Visibility performance metrics

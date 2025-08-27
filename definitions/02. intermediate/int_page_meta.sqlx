@@ -22,6 +22,9 @@ select
   , pa.page_region
   , pa.page_country
   , pa.page_language
+  , pa.page_solution_line
+  , pa.page_capability
+  , pa.page_product_service
   , pf.organic_post_frequency
   , ts.trajectory_score
   , ts.score_trajectory_percentile
